@@ -1,46 +1,61 @@
-from telegram import Update, Bot
+import os
+from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import time
+from dotenv import load_dotenv
 
-# Replace with your bot token
-BOT_TOKEN = '8168443954:AAEfkUjLCAejSjfllVvYbaf1-q2LPLOXwe8'
+load_dotenv()  # Load environment variables from .env file
+
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 def delete_all_messages(update: Update, context: CallbackContext):
+    if not update.message:
+        return
+        
     chat_id = update.effective_chat.id
     bot = context.bot
     
-    # Check if bot is admin (simplified check)
-    if not update.effective_chat.get_member(bot.id).status == 'administrator':
-        update.message.reply_text("I need to be an admin to delete messages!")
+    # Admin check
+    try:
+        if not update.effective_chat.get_member(bot.id).status == 'administrator':
+            update.message.reply_text("❌ I need admin privileges with delete permissions!")
+            return
+    except Exception as e:
+        update.message.reply_text(f"⚠️ Error checking admin status: {e}")
         return
     
-    # Get the last message ID to start from
     last_message = update.message.message_id
+    update.message.reply_text("🚀 Starting message deletion...")
     
-    # Delete messages in a loop
+    deleted_count = 0
     while True:
         try:
-            # Delete messages in batches
-            for msg_id in range(last_message, last_message - 100, -1):
+            for msg_id in range(last_message, max(last_message - 100, 1), -1):
                 try:
                     bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                except Exception as e:
-                    # Message might not exist or no permission
-                    pass
+                    deleted_count += 1
+                except:
+                    continue
             
             last_message -= 100
-            time.sleep(1)  # Avoid rate limiting
+            time.sleep(0.5)  # Respect rate limits
             
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Stopping: {e}")
             break
+    
+    update.message.reply_text(f"✅ Deleted {deleted_count} messages!")
 
 def main():
+    if not BOT_TOKEN:
+        raise ValueError("No BOT_TOKEN set in environment variables")
+        
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     
     dp.add_handler(CommandHandler("deleteall", delete_all_messages))
     
+    print("Bot is running...")
     updater.start_polling()
     updater.idle()
 
