@@ -1,6 +1,6 @@
 import os
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, ContextTypes
 import time
 from dotenv import load_dotenv
 
@@ -8,7 +8,7 @@ load_dotenv()  # Load environment variables from .env file
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-def delete_all_messages(update: Update, context: CallbackContext):
+async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
         
@@ -17,22 +17,23 @@ def delete_all_messages(update: Update, context: CallbackContext):
     
     # Admin check
     try:
-        if not update.effective_chat.get_member(bot.id).status == 'administrator':
-            update.message.reply_text("❌ I need admin privileges with delete permissions!")
+        chat_member = await bot.get_chat_member(chat_id, bot.id)
+        if chat_member.status not in ['administrator', 'creator']:
+            await update.message.reply_text("❌ I need admin privileges with delete permissions!")
             return
     except Exception as e:
-        update.message.reply_text(f"⚠️ Error checking admin status: {e}")
+        await update.message.reply_text(f"⚠️ Error checking admin status: {e}")
         return
     
     last_message = update.message.message_id
-    update.message.reply_text("🚀 Starting message deletion...")
+    await update.message.reply_text("🚀 Starting message deletion...")
     
     deleted_count = 0
     while True:
         try:
             for msg_id in range(last_message, max(last_message - 100, 1), -1):
                 try:
-                    bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    await bot.delete_message(chat_id=chat_id, message_id=msg_id)
                     deleted_count += 1
                 except:
                     continue
@@ -44,20 +45,18 @@ def delete_all_messages(update: Update, context: CallbackContext):
             print(f"Stopping: {e}")
             break
     
-    update.message.reply_text(f"✅ Deleted {deleted_count} messages!")
+    await update.message.reply_text(f"✅ Deleted {deleted_count} messages!")
 
 def main():
     if not BOT_TOKEN:
         raise ValueError("No BOT_TOKEN set in environment variables")
         
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    dp.add_handler(CommandHandler("deleteall", delete_all_messages))
+    application.add_handler(CommandHandler("deleteall", delete_all_messages))
     
     print("Bot is running...")
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
