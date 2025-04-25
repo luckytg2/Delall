@@ -5,4 +5,21 @@ services:
     build: .
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
+      - MONGO_URI=mongodb://mongo:27017
+    depends_on:
+      - mongo
     restart: unless-stopped
+
+  mongo:
+    image: mongo:latest
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS}
+    ports:
+      - "27017:27017"
+    restart: always
+
+volumes:
+  mongodb_data:
