@@ -17,7 +17,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Welcome to the Message Deleter Bot!\n\n"
         "Available Commands:\n"
         "/deleteall - Delete all messages in this chat.\n"
-        "\n⚠️ Make sure I have admin permissions with delete rights."
+        "\n⚠️ Make sure I have admin permissions with delete rights.\n JOIN @SR_ROBOTS"
     )
 
 async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
