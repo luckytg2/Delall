@@ -55,12 +55,8 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Verify membership
     if user_id not in verified_users:
-        await update.message.reply_text(
-            "❌ You must complete verification first!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]
-            )
-        )
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]])
+        await update.message.reply_text("❌ You must complete verification first!", reply_markup=keyboard)
         return
     
     # Check admin privileges
@@ -78,14 +74,14 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     status_msg = await update.message.reply_text("⚡ Starting deletion...")
     deleted = 0
     
-    # Delete messages in reverse order
-    for current_msg in range(start_msg, max(start_msg - 500, -1):  # Limit to 500 messages
+    # Delete messages in reverse order (limit to 500 messages)
+    for current_msg in range(start_msg, max(start_msg - 500, -1), -1):
         try:
             await context.bot.delete_message(chat_id, current_msg)
             deleted += 1
-            if deleted % 20 == 0:  # Update progress
+            if deleted % 20 == 0:  # Update progress every 20 deletions
                 await status_msg.edit_text(f"⏳ Deleted {deleted} messages...")
-                await asyncio.sleep(0.5)  # Rate limit
+                await asyncio.sleep(0.5)  # Rate limiting
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after)
         except BadRequest:  # Message not found
