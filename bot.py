@@ -5,24 +5,21 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import RetryAfter, BadRequest
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 if BOT_TOKEN is None:
     raise ValueError("No BOT_TOKEN provided in .env file!")
 
-# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command."""
     await update.effective_chat.send_message(
         "👋 Welcome to the Message Deleter Bot!\n\n"
         "Available Commands:\n"
         "/deleteall - Delete all recent messages in this chat.\n"
-        "\n⚠️ Make sure I have admin permissions with delete rights. JOIN @SR_ROBOTS"
+        "\n⚠️ Make sure I have admin permissions with delete rights."
     )
 
-# /deleteall command handler
 async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /deleteall command."""
     if not update.message:
@@ -41,16 +38,15 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     start_msg = update.message.message_id
-    command_msg_id = update.message.message_id  # Protect this command message
     status_msg = await update.effective_chat.send_message("⚡ Starting deletion...")
 
     deleted = 0
     batch_size = 30
-    current_msg = start_msg
+    current_msg = start_msg - 1  # Start from one before the command message
 
     while current_msg > 1:
-        # Skip the /deleteall command and status message
-        if current_msg == command_msg_id or current_msg == status_msg.message_id:
+        # Skip the status message
+        if current_msg == status_msg.message_id:
             current_msg -= 1
             continue
 
@@ -87,7 +83,6 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception:
         pass
 
-# Main function to run the bot
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
