@@ -78,8 +78,8 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     status_msg = await update.message.reply_text("⚡ Starting deletion...")
     deleted = 0
     
-    # Delete messages in batches
-    for current_msg in range(start_msg, max(start_msg - 1000, -1):  # Limit to 1000 messages
+    # Delete messages in batches (fixed syntax here)
+    for current_msg in range(start_msg, max(start_msg - 1000, -1), -1):  # Limit to 1000 messages
         try:
             await context.bot.delete_message(chat_id, current_msg)
             deleted += 1
