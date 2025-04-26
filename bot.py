@@ -61,11 +61,12 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Immediate verification check
     if not await check_membership(user_id):
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]
+        ])
         await update.message.reply_text(
             "❌ You must complete verification first!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]
-            )
+            reply_markup=keyboard
         )
         return
         
