@@ -40,7 +40,7 @@ async def verify_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             verified_users.add(query.from_user.id)
             await query.edit_message_text(
                 "✅ <b>Verification Successful!</b>\n\n"
-                "You can now use deletion commands in groups where I'm admin.",
+                "You can now use /deleteall in groups where I'm admin.",
                 parse_mode="HTML"
             )
         else:
@@ -55,8 +55,12 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Verify membership
     if user_id not in verified_users:
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]])
-        await update.message.reply_text("❌ You must complete verification first!", reply_markup=keyboard)
+        await update.message.reply_text(
+            "❌ You must complete verification first!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Verify Now", callback_data="verify_join")]
+            ])
+        )
         return
     
     # Check admin privileges
@@ -69,28 +73,32 @@ async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"⚠️ Error checking admin status: {e}")
         return
     
-    # Start deletion process
+    # Start actual deletion
     start_msg = update.message.message_id
     status_msg = await update.message.reply_text("⚡ Starting deletion...")
     deleted = 0
     
-    # Delete messages in reverse order (limit to 500 messages)
-    for current_msg in range(start_msg, max(start_msg - 500, -1), -1):
+    # Delete messages in batches
+    for current_msg in range(start_msg, max(start_msg - 1000, -1):  # Limit to 1000 messages
         try:
             await context.bot.delete_message(chat_id, current_msg)
             deleted += 1
-            if deleted % 20 == 0:  # Update progress every 20 deletions
+            if deleted % 20 == 0:  # Update progress every 20 messages
                 await status_msg.edit_text(f"⏳ Deleted {deleted} messages...")
-                await asyncio.sleep(0.5)  # Rate limiting
+                await asyncio.sleep(0.3)  # Rate limiting
         except RetryAfter as e:
-            await asyncio.sleep(e.retry_after)
+            await asyncio.sleep(e.retry_after + 1)
         except BadRequest:  # Message not found
             continue
         except Exception as e:
-            print(f"Deletion error: {e}")
+            print(f"Error deleting message {current_msg}: {e}")
             break
     
-    await status_msg.edit_text(f"✅ Success! Deleted {deleted} messages")
+    # Final status update
+    if deleted > 0:
+        await status_msg.edit_text(f"✅ Successfully deleted {deleted} messages")
+    else:
+        await status_msg.edit_text("⚠️ No messages were deleted")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -100,7 +108,7 @@ def main():
     application.add_handler(CommandHandler("deleteall", delete_all_messages))
     application.add_handler(CallbackQueryHandler(verify_join, pattern="^verify_join$"))
     
-    print("🤖 Bot is running and ready...")
+    print("🤖 Bot is running and ready to delete messages...")
     application.run_polling()
 
 if __name__ == '__main__':
