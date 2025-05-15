@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Environment variables (use docker-compose or runtime for actual values)
-ENV BOT_TOKEN=8168443954:AAEfkUjLCAejSjfllVvYbaf1-q2LPLOXwe8
+ENV BOT_TOKEN=7843411053:AAEfr-VOWHgMWV5HmLVbaoFrF4rh5gM-Ybg
 
 # Run the bot
 CMD ["python", "bot.py"]
