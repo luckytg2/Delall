@@ -2,7 +2,13 @@ import os
 import asyncio
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 from telegram.error import TelegramError
 from dotenv import load_dotenv
 
@@ -55,11 +61,11 @@ def main():
     app.add_handler(CommandHandler("deleteall", delete_all_messages))
     app.add_error_handler(error_handler)
     
-    # Debug: Log incoming updates
+    # Debug: Log all incoming updates
     async def log_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Update received: {update}")
     
-    app.add_handler(MessageHandler(None, log_updates))
+    app.add_handler(MessageHandler(filters.ALL, log_updates))
     
     # Start polling
     app.run_polling(
