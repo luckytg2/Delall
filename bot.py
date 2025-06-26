@@ -2,119 +2,127 @@ import os
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.error import RetryAfter, BadRequest
+from telegram.error import RetryAfter, BadRequest, TelegramError
 from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-if BOT_TOKEN is None:
-    raise ValueError("No BOT_TOKEN provided in .env file!")
+if not BOT_TOKEN:
+    raise ValueError("No BOT_TOKEN found in .env file or environment variables!")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command."""
-    await update.effective_chat.send_message(
-        "👋 Welcome to the Non-Admin Message Deleter Bot!\n\n"
-        "Available Commands:\n"
-        "/cleannonadmin - Delete all recent non-admin messages in this chat.\n"
-        "\n⚠️ Make sure I have admin permissions with delete rights."
-    )
+    try:
+        await update.message.reply_text(
+            "👋 Welcome to the Admin-Safe Message Cleaner!\n\n"
+            "Commands:\n"
+            "/clean - Delete non-admin messages\n"
+            "\n⚠️ I need admin rights with delete permission!"
+        )
+    except Exception as e:
+        print(f"Start command error: {e}")
 
-async def get_chat_admins(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Get a set of admin user IDs for the chat."""
-    admins = await context.bot.get_chat_administrators(chat_id)
-    return {admin.user.id for admin in admins}
+async def get_chat_admins(bot, chat_id):
+    """Get set of admin user IDs."""
+    try:
+        admins = await bot.get_chat_administrators(chat_id)
+        return {admin.user.id for admin in admins}
+    except Exception as e:
+        print(f"Admin fetch error: {e}")
+        return set()
 
 async def is_anonymous_admin(message):
-    """Check if a message is from an anonymous admin."""
-    return (message.sender_chat is not None and 
-            message.sender_chat.id == message.chat.id and
-            message.sender_chat.type == "channel")
+    """Check if message is from anonymous admin."""
+    try:
+        return (message.sender_chat and 
+                message.sender_chat.id == message.chat.id and
+                message.sender_chat.type == "channel")
+    except:
+        return False
 
-async def delete_non_admin_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for /cleannonadmin command."""
+async def clean_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /clean command."""
     if not update.message:
         return
 
-    chat_id = update.effective_chat.id
+    chat = update.effective_chat
     bot = context.bot
 
     try:
-        chat_member = await bot.get_chat_member(chat_id, bot.id)
-        if chat_member.status not in ['administrator', 'creator']:
-            await update.effective_chat.send_message("❌ I need admin privileges to delete messages!")
+        # Verify bot is admin
+        bot_member = await bot.get_chat_member(chat.id, bot.id)
+        if bot_member.status not in ['administrator', 'creator']:
+            await chat.send_message("❌ I'm not an admin! Promote me first.")
             return
-    except Exception as e:
-        await update.effective_chat.send_message(f"⚠️ Admin check failed: {e}")
-        return
+        if not bot_member.can_delete_messages:
+            await chat.send_message("❌ I need message delete permission!")
+            return
 
-    # Get all current admins in the chat
-    try:
-        admin_ids = await get_chat_admins(context, chat_id)
-    except Exception as e:
-        await update.effective_chat.send_message(f"⚠️ Failed to get admin list: {e}")
-        return
+        admin_ids = await get_chat_admins(bot, chat.id)
+        if not admin_ids:
+            await chat.send_message("⚠️ Couldn't fetch admin list. Aborting.")
+            return
 
-    start_msg = update.message.message_id
-    status_msg = await update.effective_chat.send_message("⚡ Starting deletion of non-admin messages...")
+        status_msg = await chat.send_message("⚡ Cleaning non-admin messages...")
+        deleted = 0
+        current_msg = update.message.message_id - 1  # Start from previous message
 
-    deleted = 0
-    batch_size = 30
-    current_msg = start_msg - 1  # Start from one before the command message
-
-    while current_msg > 1:
-        # Skip the status message
-        if current_msg == status_msg.message_id:
-            current_msg -= 1
-            continue
-
-        try:
-            # Get the message to check its sender
-            message = await bot.get_message(chat_id, current_msg)
-            
-            # Skip if message is from an admin or anonymous admin
-            if (message.from_user and message.from_user.id in admin_ids) or await is_anonymous_admin(message):
+        while current_msg > 0:
+            if current_msg == status_msg.message_id:
                 current_msg -= 1
                 continue
+
+            try:
+                msg = await bot.get_message(chat.id, current_msg)
                 
-            # Delete non-admin message
-            await bot.delete_message(chat_id, current_msg)
-            deleted += 1
-        except RetryAfter as e:
-            await asyncio.sleep(e.retry_after + 1)
-        except BadRequest:
-            pass  # Message not found or cannot delete, just skip
-        except Exception as e:
-            print(f"Error: {e}")
+                # Skip admin and anonymous admin messages
+                if ((msg.from_user and msg.from_user.id in admin_ids) or 
+                    await is_anonymous_admin(msg)):
+                    current_msg -= 1
+                    continue
+                    
+                await bot.delete_message(chat.id, current_msg)
+                deleted += 1
+
+                # Update status every 20 deletions
+                if deleted % 20 == 0:
+                    try:
+                        await status_msg.edit_text(f"🧹 Deleted {deleted} messages...")
+                    except:
+                        pass
+                    await asyncio.sleep(1)
+
+            except RetryAfter as e:
+                await asyncio.sleep(e.retry_after)
+            except BadRequest:
+                pass  # Message already deleted or inaccessible
+            except TelegramError as e:
+                print(f"Error processing message {current_msg}: {e}")
+            finally:
+                current_msg -= 1
+
+        await status_msg.edit_text(f"✅ Cleaned {deleted} non-admin messages")
+        await asyncio.sleep(5)
+        await status_msg.delete()
+
+    except Exception as e:
+        print(f"Clean error: {e}")
+        try:
+            await chat.send_message(f"❌ Error: {str(e)}")
+        except:
             pass
 
-        current_msg -= 1
-
-        if deleted % batch_size == 0:
-            try:
-                await status_msg.edit_text(f"⏳ Deleted {deleted} non-admin messages...")
-            except BadRequest:
-                pass
-            await asyncio.sleep(1)
-
-    # Final status update
-    try:
-        await status_msg.edit_text(f"✅ Finished! Deleted {deleted} non-admin messages")
-    except BadRequest:
-        pass
-
-    # Optional: clean up status message after 5 seconds
-    await asyncio.sleep(5)
-    try:
-        await bot.delete_message(chat_id, status_msg.message_id)
-    except Exception:
-        pass
-
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("cleannonadmin", delete_non_admin_messages))
-    application.run_polling()
+    try:
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("clean", clean_messages))
+        
+        print("Bot is running...")
+        app.run_polling()
+    except Exception as e:
+        print(f"Bot failed to start: {e}")
 
 if __name__ == '__main__':
     main()
