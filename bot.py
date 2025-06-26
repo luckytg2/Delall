@@ -1,129 +1,120 @@
 import os
 import asyncio
-import logging
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import RetryAfter, BadRequest
 from dotenv import load_dotenv
 
-# ===== Load Environment Variables =====
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN missing from .env file!")
+if BOT_TOKEN is None:
+    raise ValueError("No BOT_TOKEN provided in .env file!")
 
-# ===== Logging =====
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# ===== /start =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"/start from {update.effective_user.id}")
-    await update.message.reply_text(
-        "🤖 *Admin-Safe Message Deleter*\n\n"
-        "Commands:\n"
-        "/test - Check bot\n"
-        "/deleteall - Delete non-admin messages\n\n"
-        "⚠️ *Bot needs admin & delete permissions*",
-        parse_mode="Markdown"
+    """Handler for /start command."""
+    await update.effective_chat.send_message(
+        "👋 Welcome to the Non-Admin Message Deleter Bot!\n\n"
+        "Available Commands:\n"
+        "/cleannonadmin - Delete all recent non-admin messages in this chat.\n"
+        "\n⚠️ Make sure I have admin permissions with delete rights."
     )
 
-# ===== /test =====
-async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"/test from {update.effective_user.id}")
-    await update.message.reply_text("✅ Bot is running!")
+async def get_chat_admins(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Get a set of admin user IDs for the chat."""
+    admins = await context.bot.get_chat_administrators(chat_id)
+    return {admin.user.id for admin in admins}
 
-# ===== /deleteall =====
-async def delete_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    bot = context.bot
+async def is_anonymous_admin(message):
+    """Check if a message is from an anonymous admin."""
+    return (message.sender_chat is not None and 
+            message.sender_chat.id == message.chat.id and
+            message.sender_chat.type == "channel")
 
-    if not chat or chat.type == "private":
-        await update.message.reply_text("❌ Use this command in a group.")
+async def delete_non_admin_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /cleannonadmin command."""
+    if not update.message:
         return
 
+    chat_id = update.effective_chat.id
+    bot = context.bot
+
     try:
-        bot_member = await bot.get_chat_member(chat.id, bot.id)
-        if bot_member.status not in ["administrator", "creator"]:
-            await update.message.reply_text("❌ I need admin + delete permissions.")
+        chat_member = await bot.get_chat_member(chat_id, bot.id)
+        if chat_member.status not in ['administrator', 'creator']:
+            await update.effective_chat.send_message("❌ I need admin privileges to delete messages!")
             return
-
-        status_msg = await chat.send_message("🔄 Deleting non-admin messages...")
-        current_msg_id = update.message.message_id - 1
-        deleted, skipped = 0, 0
-
-        while current_msg_id > 0:
-            try:
-                message = await bot.get_message(chat.id, current_msg_id)
-
-                # Skip the bot's own status message
-                if current_msg_id == status_msg.message_id:
-                    current_msg_id -= 1
-                    continue
-
-                is_admin = False
-                if message.sender_chat:  # Anonymous admin
-                    is_admin = True
-                elif message.from_user:
-                    member = await bot.get_chat_member(chat.id, message.from_user.id)
-                    is_admin = member.status in ["administrator", "creator"]
-
-                if is_admin:
-                    skipped += 1
-                else:
-                    await bot.delete_message(chat.id, current_msg_id)
-                    deleted += 1
-
-            except RetryAfter as e:
-                await asyncio.sleep(e.retry_after)
-            except BadRequest as e:
-                if "not found" not in str(e):
-                    logger.warning(f"BadRequest: {e}")
-            except Exception as e:
-                logger.error(f"Error at {current_msg_id}: {e}")
-
-            current_msg_id -= 1
-
-            if (deleted + skipped) % 20 == 0:
-                try:
-                    await status_msg.edit_text(f"🗑️ Deleted: {deleted} | Skipped: {skipped}")
-                except:
-                    pass
-
-        await status_msg.edit_text(f"✅ Done!\nDeleted: {deleted}\nSkipped (admins): {skipped}")
-        await asyncio.sleep(5)
-        await status_msg.delete()
-
     except Exception as e:
-        logger.error(f"Main deletion error: {e}")
-        await chat.send_message("❌ Deletion failed. Check logs.")
+        await update.effective_chat.send_message(f"⚠️ Admin check failed: {e}")
+        return
 
-# ===== MAIN =====
+    # Get all current admins in the chat
+    try:
+        admin_ids = await get_chat_admins(context, chat_id)
+    except Exception as e:
+        await update.effective_chat.send_message(f"⚠️ Failed to get admin list: {e}")
+        return
+
+    start_msg = update.message.message_id
+    status_msg = await update.effective_chat.send_message("⚡ Starting deletion of non-admin messages...")
+
+    deleted = 0
+    batch_size = 30
+    current_msg = start_msg - 1  # Start from one before the command message
+
+    while current_msg > 1:
+        # Skip the status message
+        if current_msg == status_msg.message_id:
+            current_msg -= 1
+            continue
+
+        try:
+            # Get the message to check its sender
+            message = await bot.get_message(chat_id, current_msg)
+            
+            # Skip if message is from an admin or anonymous admin
+            if (message.from_user and message.from_user.id in admin_ids) or await is_anonymous_admin(message):
+                current_msg -= 1
+                continue
+                
+            # Delete non-admin message
+            await bot.delete_message(chat_id, current_msg)
+            deleted += 1
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except BadRequest:
+            pass  # Message not found or cannot delete, just skip
+        except Exception as e:
+            print(f"Error: {e}")
+            pass
+
+        current_msg -= 1
+
+        if deleted % batch_size == 0:
+            try:
+                await status_msg.edit_text(f"⏳ Deleted {deleted} non-admin messages...")
+            except BadRequest:
+                pass
+            await asyncio.sleep(1)
+
+    # Final status update
+    try:
+        await status_msg.edit_text(f"✅ Finished! Deleted {deleted} non-admin messages")
+    except BadRequest:
+        pass
+
+    # Optional: clean up status message after 5 seconds
+    await asyncio.sleep(5)
+    try:
+        await bot.delete_message(chat_id, status_msg.message_id)
+    except Exception:
+        pass
+
 def main():
-    logger.info("Bot is starting...")
-    app = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("cleannonadmin", delete_non_admin_messages))
+    application.run_polling()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test", test))
-    app.add_handler(CommandHandler("deleteall", delete_all_messages))
-
-    async def log_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        logger.debug(f"Update: {update}")
-
-    app.add_handler(MessageHandler(filters.ALL, log_all))
-
-    app.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
